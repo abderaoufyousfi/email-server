@@ -3,7 +3,7 @@ const cors = require('cors');
 const Imap = require('imap');
 const { simpleParser } = require('mailparser');
 const app = express();
-const port = 4000;
+const port = process.env.PORT || 4000;
 
 app.use(cors());
 app.use(express.json());
@@ -25,30 +25,39 @@ function getOTPFromEmail(email, password, senderEmail) {
 
         imap.once('ready', function () {
             openInbox(function (err, box) {
-                if (err) throw err;
+                if (err) {
+                    console.error("Error opening inbox:", err);
+                    return reject(err);
+                }
 
-                // Search criteria for unseen emails from a specific sender
-                const criteria = ['UNSEEN', ['FROM', senderEmail]];
+                const criteria = ['UNSEEN', ['FROM', senderEmail]]; // Filter by sender email
                 const fetchOptions = { bodies: '' };
 
                 imap.search(criteria, (err, results) => {
-                    if (err) throw err;
+                    if (err) {
+                        console.error("Error searching emails:", err);
+                        return reject(err);
+                    }
 
                     if (!results || !results.length) {
                         imap.end();
-                        return reject('No unread emails from the specified sender found');
+                        return reject('No unread emails from the specified sender.');
                     }
 
                     const f = imap.fetch(results, fetchOptions);
 
                     f.on('message', (msg) => {
                         msg.on('body', async (stream) => {
-                            const parsed = await simpleParser(stream);
-                            const otp = extractOTP(parsed.text);
+                            try {
+                                const parsed = await simpleParser(stream);
+                                const otp = extractOTP(parsed.text);
 
-                            if (otp) {
-                                imap.end();
-                                resolve(otp);
+                                if (otp) {
+                                    imap.end();
+                                    return resolve(otp);
+                                }
+                            } catch (err) {
+                                console.error("Error parsing email:", err);
                             }
                         });
                     });
@@ -61,6 +70,7 @@ function getOTPFromEmail(email, password, senderEmail) {
         });
 
         imap.once('error', (err) => {
+            console.error("IMAP error:", err);
             reject(err);
         });
 
@@ -68,12 +78,12 @@ function getOTPFromEmail(email, password, senderEmail) {
     });
 }
 
- function extractOTP(text) {
-//     const otpRegex = /\b\d{6}\b/; // Adjust the regex based on OTP format
-//     const match = text.match(otpRegex);
-//     return match ? match[0] : null;
-     return text;
- }
+function extractOTP(text) {
+    //const otpRegex = /\b\d{6}\b/; // Adjust the regex based on OTP format
+    //const match = text.match(otpRegex);
+    //return match ? match[0] : null;
+    return text;
+}
 
 app.post('/otp1', async (req, res) => {
     const { email, password, senderEmail } = req.body;
@@ -86,7 +96,8 @@ app.post('/otp1', async (req, res) => {
         const otp = await getOTPFromEmail(email, password, senderEmail);
         res.json({ otp });
     } catch (error) {
-        res.status(500).json({ error: 'Failed to retrieve OTP: ' + error });
+        console.error("Failed to retrieve OTP:", error);
+        res.status(500).json({ error: 'Failed to retrieve OTP: ' + error.message });
     }
 });
 
