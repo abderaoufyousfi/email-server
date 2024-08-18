@@ -68,11 +68,12 @@ function getOTPFromEmail(email, password, senderEmail) {
     });
 }
 
-function extractOTP(text) {
-    const otpRegex = /\b\d{6}\b/; // Adjust the regex based on OTP format
-    const match = text.match(otpRegex);
-    return match ? match[0] : null;
-}
+ function extractOTP(text) {
+//     const otpRegex = /\b\d{6}\b/; // Adjust the regex based on OTP format
+//     const match = text.match(otpRegex);
+//     return match ? match[0] : null;
+     return text;
+ }
 
 app.post('/otp1', async (req, res) => {
     const { email, password, senderEmail } = req.body;
