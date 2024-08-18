@@ -2,13 +2,21 @@ const express = require('express');
 const cors = require('cors');
 const Imap = require('imap');
 const { simpleParser } = require('mailparser');
-const app = express();
-const port = process.env.PORT || 4000; // Use environment variable for port
 
-app.use(cors());
+const app = express();
+const port = process.env.PORT || 4000;
+
+const corsOptions = {
+    origin: 'https://your-client-app.com', // Replace with your client's URL
+    methods: 'GET,POST',
+    allowedHeaders: 'Content-Type',
+    credentials: true
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 
-function getOTPFromEmail(email, password, senderEmail) {
+function getOTPFromEmail(email, password, senderEmail, subject) {
     return new Promise((resolve, reject) => {
         const imap = new Imap({
             user: email,
@@ -27,7 +35,7 @@ function getOTPFromEmail(email, password, senderEmail) {
             openInbox(function (err, box) {
                 if (err) return reject(err);
 
-                const criteria = ['UNSEEN', ['FROM', senderEmail]]; // Filter by sender email
+                const criteria = ['UNSEEN', ['FROM', senderEmail], ['SUBJECT', subject]];
                 const fetchOptions = { bodies: '' };
 
                 imap.search(criteria, (err, results) => {
@@ -35,7 +43,7 @@ function getOTPFromEmail(email, password, senderEmail) {
 
                     if (!results || !results.length) {
                         imap.end();
-                        return reject('No unread emails from the specified sender found');
+                        return reject(new Error('No matching emails found'));
                     }
 
                     const f = imap.fetch(results, fetchOptions);
@@ -48,6 +56,9 @@ function getOTPFromEmail(email, password, senderEmail) {
                             if (otp) {
                                 imap.end();
                                 resolve({ otp });
+                            } else {
+                                imap.end();
+                                reject(new Error('No OTP found in the email body'));
                             }
                         });
                     });
@@ -68,20 +79,20 @@ function getOTPFromEmail(email, password, senderEmail) {
 }
 
 function extractOTP(text) {
-    const otpRegex = /\b\d{6}\b/; // Adjust the regex based on OTP format
+    const otpRegex = /\b\d{6}\b/;
     const match = text.match(otpRegex);
     return match ? match[0] : null;
 }
 
 app.post('/otp1', async (req, res) => {
-    const { email, password, senderEmail } = req.body;
+    const { email, password, senderEmail, subject } = req.body;
 
-    if (!email || !password || !senderEmail) {
-        return res.status(400).json({ error: "Email, password, and senderEmail are required." });
+    if (!email || !password || !senderEmail || !subject) {
+        return res.status(400).json({ error: "Email, password, senderEmail, and subject are required." });
     }
 
     try {
-        const otp = await getOTPFromEmail(email, password, senderEmail);
+        const otp = await getOTPFromEmail(email, password, senderEmail, subject);
         res.json(otp);
     } catch (error) {
         res.status(500).json({ error: 'Failed to retrieve OTP: ' + error.message });
