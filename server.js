@@ -36,7 +36,7 @@ async function getOTPFromEmail(email, password, senderEmail, subject, retries = 
                     }
 
                     const criteria = ['UNSEEN', ['FROM', senderEmail], ['SUBJECT', subject]];
-                    const fetchOptions = { bodies: '', markSeen: true };
+                    const fetchOptions = { bodies: '', markSeen: false }; // Do not mark as seen during fetch
 
                     imap.search(criteria, (err, results) => {
                         if (err) {
@@ -54,7 +54,9 @@ async function getOTPFromEmail(email, password, senderEmail, subject, retries = 
                             }
                         }
 
-                        const f = imap.fetch(results, fetchOptions);
+                        // Get the latest email (i.e., the last one in the results array)
+                        const latestEmail = results[results.length - 1];
+                        const f = imap.fetch(latestEmail, fetchOptions);
 
                         f.on('message', (msg) => {
                             msg.on('body', async (stream) => {
@@ -62,8 +64,15 @@ async function getOTPFromEmail(email, password, senderEmail, subject, retries = 
                                     const parsed = await simpleParser(stream);
                                     const otp = extractOTP(parsed.text);
                                     if (otp) {
-                                        imap.end();
-                                        resolve({ otp });
+                                        // Mark the email as seen after processing
+                                        imap.addFlags(latestEmail, '\\Seen', (err) => {
+                                            if (err) {
+                                                imap.end();
+                                                return reject(new Error('Failed to mark email as read: ' + err.message));
+                                            }
+                                            imap.end();
+                                            resolve({ otp });
+                                        });
                                     } else {
                                         imap.end();
                                         reject(new Error('No OTP found in the email body'));
