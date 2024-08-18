@@ -7,7 +7,7 @@ const app = express();
 const port = process.env.PORT || 4000;
 
 const corsOptions = {
-    origin: '*', // Replace with your client's URL
+    origin: '*', // Replace with your client's URL if needed
     methods: 'GET,POST',
     allowedHeaders: 'Content-Type',
     credentials: true
@@ -16,57 +16,71 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
-function getOTPFromEmail(email, password, senderEmail, subject) {
+async function getOTPFromEmail(email, password, senderEmail, subject, retries = 3, delay = 1000) {
+    const imap = new Imap({
+        user: email,
+        password: password,
+        host: 'imap.gmail.com',
+        port: 993,
+        tls: true,
+        tlsOptions: { rejectUnauthorized: false }
+    });
+
+    function openInbox(cb) {
+        imap.openBox('INBOX', false, cb); // Open inbox in read/write mode
+    }
+
     return new Promise((resolve, reject) => {
-        const imap = new Imap({
-            user: email,
-            password: password,
-            host: 'imap.gmail.com',
-            port: 993,
-            tls: true,
-            tlsOptions: { rejectUnauthorized: false }
-        });
-
-        function openInbox(cb) {
-            imap.openBox('INBOX', true, cb);
-        }
-
         imap.once('ready', function () {
             openInbox(function (err, box) {
                 if (err) return reject(err);
 
                 const criteria = ['UNSEEN', ['FROM', senderEmail], ['SUBJECT', subject]];
-                const fetchOptions = { bodies: '' };
+                const fetchOptions = { bodies: '', markSeen: true }; // Mark emails as seen
 
-                imap.search(criteria, (err, results) => {
-                    if (err) return reject(err);
+                function searchAndFetch() {
+                    imap.search(criteria, (err, results) => {
+                        if (err) return reject(err);
 
-                    if (!results || !results.length) {
-                        imap.end();
-                        return reject(new Error('No matching emails found'));
-                    }
-
-                    const f = imap.fetch(results, fetchOptions);
-
-                    f.on('message', (msg) => {
-                        msg.on('body', async (stream) => {
-                            const parsed = await simpleParser(stream);
-                            const otp = extractOTP(parsed.text);
-
-                            if (otp) {
-                                imap.end();
-                                resolve({ otp });
+                        if (!results || !results.length) {
+                            if (retries > 0) {
+                                console.log(`No matching unread emails found. Retrying in ${delay}ms...`);
+                                setTimeout(() => {
+                                    searchAndFetch(); // Retry after delay
+                                }, delay);
+                                retries--;
                             } else {
                                 imap.end();
-                                reject(new Error('No OTP found in the email body'));
+                                return reject(new Error('No matching unread emails found after retries'));
                             }
-                        });
-                    });
+                        } else {
+                            // Fetch the latest unread email
+                            const latestEmail = [results[results.length - 1]];
+                            const f = imap.fetch(latestEmail, fetchOptions);
 
-                    f.once('end', () => {
-                        imap.end();
+                            f.on('message', (msg) => {
+                                msg.on('body', async (stream) => {
+                                    const parsed = await simpleParser(stream);
+                                    const otp = extractOTP(parsed.text);
+
+                                    if (otp) {
+                                        imap.end();
+                                        resolve({ otp });
+                                    } else {
+                                        imap.end();
+                                        reject(new Error('No OTP found in the email body'));
+                                    }
+                                });
+                            });
+
+                            f.once('end', () => {
+                                imap.end();
+                            });
+                        }
                     });
-                });
+                }
+
+                searchAndFetch(); // Start searching and fetching
             });
         });
 
