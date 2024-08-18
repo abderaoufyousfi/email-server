@@ -31,6 +31,7 @@ async function getOTPFromEmail(email, password, senderEmail, subject, retries = 
             imap.once('ready', () => {
                 imap.openBox('INBOX', true, (err, box) => {
                     if (err) {
+                        console.error('Error opening inbox:', err);
                         imap.end();
                         return reject(err);
                     }
@@ -40,60 +41,65 @@ async function getOTPFromEmail(email, password, senderEmail, subject, retries = 
 
                     imap.search(criteria, (err, results) => {
                         if (err) {
+                            console.error('Error searching for emails:', err);
                             imap.end();
                             return reject(err);
                         }
 
                         if (!results.length) {
+                            console.log('No matching emails found. Retrying...');
                             imap.end();
                             if (retries > 0) {
-                                console.log('Retrying to find an email...');
                                 setTimeout(() => connectAndSearch(), delay);
                             } else {
                                 return reject(new Error('No matching emails found after retries'));
                             }
-                        }
+                        } else {
+                            const latestEmail = results[results.length - 1];
+                            console.log('Latest email ID:', latestEmail);
+                            const f = imap.fetch(latestEmail, fetchOptions);
 
-                        // Get the latest email (i.e., the last one in the results array)
-                        const latestEmail = results[results.length - 1];
-                        const f = imap.fetch(latestEmail, fetchOptions);
-
-                        f.on('message', (msg) => {
-                            msg.on('body', async (stream) => {
-                                try {
-                                    const parsed = await simpleParser(stream);
-                                    const otp = extractOTP(parsed.text);
-                                    if (otp) {
-                                        // Mark the email as seen after processing
-                                        imap.addFlags(latestEmail, '\\Seen', (err) => {
-                                            if (err) {
+                            f.on('message', (msg) => {
+                                msg.on('body', async (stream) => {
+                                    try {
+                                        const parsed = await simpleParser(stream);
+                                        const otp = extractOTP(parsed.text);
+                                        if (otp) {
+                                            console.log('Found OTP:', otp);
+                                            imap.addFlags(latestEmail, '\\Seen', (err) => {
+                                                if (err) {
+                                                    console.error('Error marking email as read:', err);
+                                                    imap.end();
+                                                    return reject(new Error('Failed to mark email as read: ' + err.message));
+                                                }
                                                 imap.end();
-                                                return reject(new Error('Failed to mark email as read: ' + err.message));
-                                            }
+                                                resolve({ otp });
+                                            });
+                                        } else {
+                                            console.error('No OTP found in the email body');
                                             imap.end();
-                                            resolve({ otp });
-                                        });
-                                    } else {
+                                            reject(new Error('No OTP found in the email body'));
+                                        }
+                                    } catch (parseError) {
+                                        console.error('Error parsing email:', parseError);
                                         imap.end();
-                                        reject(new Error('No OTP found in the email body'));
+                                        reject(new Error('Error parsing email: ' + parseError.message));
                                     }
-                                } catch (parseError) {
-                                    imap.end();
-                                    reject(new Error('Error parsing email: ' + parseError.message));
-                                }
+                                });
                             });
-                        });
 
-                        f.once('end', () => {
-                            imap.end();
-                        });
+                            f.once('end', () => {
+                                imap.end();
+                            });
+                        }
                     });
                 });
             });
 
             imap.once('error', (err) => {
+                console.error('IMAP connection error:', err);
                 if (retries > 0) {
-                    console.log('Retrying due to error...');
+                    console.log('Retrying due to connection error...');
                     setTimeout(() => connectAndSearch(), delay);
                 } else {
                     reject(err);
