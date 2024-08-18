@@ -7,7 +7,7 @@ const app = express();
 const port = process.env.PORT || 4000;
 
 const corsOptions = {
-    origin: 'https://your-client-app.com', // Replace with your client's URL
+    origin: '*', // Replace with your client's URL
     methods: 'GET,POST',
     allowedHeaders: 'Content-Type',
     credentials: true
