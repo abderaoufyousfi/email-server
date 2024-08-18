@@ -8,7 +8,7 @@ const port = 4000;
 app.use(cors());
 app.use(express.json());
 
-function getOTPFromEmail(email, password) {
+function getOTPFromEmail(email, password, senderEmail) {
     return new Promise((resolve, reject) => {
         const imap = new Imap({
             user: email,
@@ -27,7 +27,8 @@ function getOTPFromEmail(email, password) {
             openInbox(function (err, box) {
                 if (err) throw err;
 
-                const criteria = ['UNSEEN'];
+                // Search criteria for unseen emails from a specific sender
+                const criteria = ['UNSEEN', ['FROM', senderEmail]];
                 const fetchOptions = { bodies: '' };
 
                 imap.search(criteria, (err, results) => {
@@ -35,7 +36,7 @@ function getOTPFromEmail(email, password) {
 
                     if (!results || !results.length) {
                         imap.end();
-                        return reject('No unread emails found');
+                        return reject('No unread emails from the specified sender found');
                     }
 
                     const f = imap.fetch(results, fetchOptions);
@@ -74,14 +75,14 @@ function extractOTP(text) {
 }
 
 app.post('/otp1', async (req, res) => {
-    const { email, password } = req.body;
+    const { email, password, senderEmail } = req.body;
 
-    if (!email || !password) {
-        return res.status(400).json({ error: "Email and password are required." });
+    if (!email || !password || !senderEmail) {
+        return res.status(400).json({ error: "Email, password, and sender email are required." });
     }
 
     try {
-        const otp = await getOTPFromEmail(email, password);
+        const otp = await getOTPFromEmail(email, password, senderEmail);
         res.json({ otp });
     } catch (error) {
         res.status(500).json({ error: 'Failed to retrieve OTP: ' + error });
