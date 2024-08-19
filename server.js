@@ -33,17 +33,23 @@ function getOTPFromEmail(email, password, senderEmail, subject) {
 
         imap.once('ready', function () {
             openInbox(function (err, box) {
-                if (err) return reject(err);
+                if (err) {
+                    console.error('Error opening inbox:', err);
+                    return reject(err);
+                }
 
                 const criteria = ['UNSEEN', ['FROM', senderEmail], ['SUBJECT', subject]];
                 const fetchOptions = { bodies: '', markSeen: true }; // Mark emails as seen
 
                 imap.search(criteria, (err, results) => {
-                    if (err) return reject(err);
+                    if (err) {
+                        console.error('Error searching emails:', err);
+                        return reject(err);
+                    }
 
                     if (!results || !results.length) {
                         imap.end();
-                        return reject(new Error('No matching unread emails found'));
+                        return resolve({ otp: null, message: 'No matching unread emails found' }); // Gracefully handle no emails
                     }
 
                     // Fetch the latest unread email
@@ -60,7 +66,7 @@ function getOTPFromEmail(email, password, senderEmail, subject) {
                                 resolve({ otp });
                             } else {
                                 imap.end();
-                                reject(new Error('No OTP found in the email body'));
+                                resolve({ otp: null, message: 'No OTP found in the email body' }); // Handle no OTP
                             }
                         });
                     });
@@ -73,6 +79,7 @@ function getOTPFromEmail(email, password, senderEmail, subject) {
         });
 
         imap.once('error', (err) => {
+            console.error('IMAP error:', err);
             reject(err);
         });
 
@@ -94,8 +101,12 @@ app.post('/otp1', async (req, res) => {
     }
 
     try {
-        const otp = await getOTPFromEmail(email, password, senderEmail, subject);
-        res.json(otp);
+        const result = await getOTPFromEmail(email, password, senderEmail, subject);
+        if (result.otp) {
+            res.json(result);
+        } else {
+            res.status(404).json({ message: result.message });
+        }
     } catch (error) {
         res.status(500).json({ error: 'Failed to retrieve OTP: ' + error.message });
     }
