@@ -105,7 +105,7 @@ app.post('/otp1', async (req, res) => {
         if (result.otp) {
             res.json(result);
         } else {
-            res.status(404).json({ message: result.message });
+            res.status(404).json({ message: "no otp found" });
         }
     } catch (error) {
         res.status(500).json({ error: 'Failed to retrieve OTP: ' + error.message });
